@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - orbit controls</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #ccc;
+				color: #000;
+			}
+
+			a {
+				color: #f00;
+			}
+		</style>
+	</head>
+
+	<body>
+		<script type="x-shader/x-vertex" id="basicvertexshader">
+			varying vec2 vUv;
+			uniform float scaleElevation; 
+			uniform vec2 stepPixel;
+			uniform sampler2D tex;
+			uniform int colorComponent;
+
+			float C_to_Clin(float C) {
+				if (C <= 0.04045) {
+					return (C / 12.92);
+				} else {
+					return pow((C + 0.055) / 1.055, 2.4);
+				}
+			}
+
+			vec3 sRGB_to_LinearRGB(vec3 color_sRGB) {
+				return vec3(C_to_Clin(color_sRGB.x), C_to_Clin(color_sRGB.y), C_to_Clin(color_sRGB.z));
+			}
+
+			vec3 LinearRGB_to_XYZ(vec3 LinearRGB) {
+				const mat3 M = mat3(
+					0.4124564, 0.3575761, 0.1804375,
+					0.2126729, 0.7151522, 0.0721750,
+					0.0193339, 0.1191920, 0.9503041
+				);
+
+				return M * LinearRGB;
+			}
+
+			vec3 PlotColorComponent(vec3 color, vec3 pos) {
+
+				float h = 0.0; // height
+				vec3 LinearRGB = sRGB_to_LinearRGB(color);
+
+				switch (colorComponent) {
+					case 0:
+						h = color.r; 	break;
+					case 1:
+						h = color.g; 	break;
+					case 2:
+						h = color.b; 	break;
+					case 3:
+						vec3 XYZ = LinearRGB_to_XYZ( LinearRGB );
+						h = XYZ.z; // lightness
+						break;
+				}
+
+				vec3 tmp = pos;
+				tmp.z = tmp.z + h*scaleElevation;
+
+				return tmp;
+			}
+
+			void main() {
+				vUv = uv;
+				vec3 color = texture2D ( tex, vUv ).rgb;
+
+				// plot color component
+				vec3 pos = PlotColorComponent(color, position);
+
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+			}
+		</script>
+
+		<script type="x-shader/x-fragment" id="basicfragmentshader">
+			varying vec2 vUv;
+			uniform sampler2D tex;
+
+			void main() {
+				vec3 color = texture2D ( tex, vUv ).rgb;
+				gl_FragColor.rgb = color;
+				gl_FragColor.a = 1.0;
+			}
+		</script>
+		<script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+		<script type="importmap">
+		  {
+			"imports": {
+			  "three": "https://unpkg.com/three@0.183.0/build/three.module.js",
+			  "three/addons/": "https://unpkg.com/three@0.183.0/examples/jsm/"
+			}
+		  }
+		</script>
+
+	  <script type="module">
+		import * as THREE from 'three';
+		import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+		import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+		import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
+		import { VRButton } from 'three/addons/webxr/VRButton.js';
+		import { HTMLMesh } from 'three/addons/interactive/HTMLMesh.js';
+		import { InteractiveGroup } from 'three/addons/interactive/InteractiveGroup.js';
+		import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+		
+
+			let camera, controls, scene, renderer;
+            let texture, room;
+			let shaderMaterial;
+
+			// VIDEO AND THE ASSOCIATED TEXTURE
+			var video, videoTexture;
+			var plan;
+
+			// GUI
+			var gui;
+
+			init();
+			animate();
+
+
+			const parameters = {
+				colorComponent: 0, /* Which color component are we using as height? */
+				scaleElevation: 0.75,
+			};
+
+
+
+
+			function init() {
+				console.log ( THREE.REVISION );
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color( 0xffffff );
+
+				camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 50 );
+				camera.position.set( 2, 8, 2 );
+				camera.up.set( 0, 0, 1 );
+
+				var light = new THREE.DirectionalLight( 0x888888, 1, 10, 1 );
+				light.position.set( 10, 7, 5 );
+				scene.add( light );
+
+				room = new THREE.LineSegments(
+					new BoxLineGeometry( 20, 20, 10, 20, 20, 10 ),
+					new THREE.LineBasicMaterial( { color: 0x808080 } )
+				);
+				scene.add( room );
+
+				var geometry = new THREE.BoxGeometry( 5, 5, .5, 10, 10, 2 );
+				var material = new THREE.MeshStandardMaterial( { roughness: 1.0, metalness: 0.0 } );
+                var base = new THREE.Mesh( geometry, material );
+                base.position.z = -2;
+				scene.add( base );
+
+				video = document.createElement('video');
+				video.src = 'video.mp4';
+				video.load();
+				video.muted = true;
+				video.loop = true;
+
+				video.onloadeddata = function () 
+				{ 
+				videoTexture = new THREE.VideoTexture( video );
+				videoTexture.minFilter = THREE.LinearFilter;
+				videoTexture.magFilter = THREE.LinearFilter;
+				videoTexture.generateMipmaps = false; 
+				videoTexture.format = THREE.RGBAFormat;
+				
+
+				var pausePlayObj =
+				{
+					pausePlay: function () 
+					{
+						if (!video.paused)
+						{
+							console.log ( "pause" );
+							video.pause();
+						}
+						else
+						{
+							console.log ( "play" );
+							video.play();
+						}
+					},
+					add10sec: function ()
+					{
+						video.currentTime = video.currentTime + 10;
+						console.log ( video.currentTime  );
+					}
+				};
+
+				video.play();
+
+
+
+				/* --------- SETUP ELEVATION ----------- */
+
+				var discret = 2;
+
+				var basicElevationMaterial = new THREE.ShaderMaterial( {
+						vertexShader: document.querySelector( '#basicvertexshader' ).textContent.trim(),
+						fragmentShader: document.querySelector( '#basicfragmentshader' ).textContent.trim(),
+						uniforms: {
+							scaleElevation: { value: parameters.scaleElevation },
+							tex: { value: videoTexture },
+							colorComponent: { value: 0 },
+							}
+				} );
+
+					var scale = 4.0;
+                    var factor = video.videoHeight/video.videoWidth;
+                    var planeGeometry = new THREE.PlaneGeometry( scale, scale*factor, video.videoWidth/discret, video.videoHeight/discret );  
+                    var plane = new THREE.Mesh( planeGeometry, basicElevationMaterial);
+                    plane.material.side = THREE.DoubleSide;
+                    plane.position.z = -0.8;
+                    plane.rotation.z = Math.PI;
+
+                    scene.add(plane);
+
+					var basicMaterial = new THREE.MeshBasicMaterial ( { map: videoTexture } );
+                    var plane2 = new THREE.Mesh( planeGeometry, basicMaterial);
+                    plane2.material.side = THREE.DoubleSide;
+                    plane2.position.z = -1.6;
+                    plane2.rotation.z = Math.PI;
+
+                    scene.add(plane2);
+
+
+
+					// --------------- SETUP LIL-GUI ---------------
+		
+					gui = new GUI();
+					gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
+					gui.add(pausePlayObj,'add10sec').name ('Add 10 seconds');
+
+					gui.add( parameters, 'colorComponent', {
+						R: 0,
+						G: 1, 
+						B: 2,
+						Lightness: 3,
+					} ).name ('Color Component').onChange((value) => {
+						basicElevationMaterial.uniforms.colorComponent.value = value;
+					});
+
+					gui.add( parameters, 'scaleElevation', 0.5, 2).name ('Scale Elevation').onChange((value) => {
+						basicElevationMaterial.uniforms.scaleElevation.value = value;
+					});
+
+				};
+
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+                renderer.setSize( window.innerWidth, window.innerHeight );
+                
+                document.body.appendChild( renderer.domElement );
+                
+				// controls
+				controls = new OrbitControls( camera, renderer.domElement );
+
+				controls.enableDamping = true; // an animation loop is required when either damping or auto-rotation are enabled
+				controls.dampingFactor = 0.05;
+
+				controls.screenSpacePanning = true;
+
+				controls.minDistance = 1;
+				controls.maxDistance = 50;
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+
+
+
+
+
+
+
+
+
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
+
+				render();
+
+			}
+
+			function render() {
+
+				renderer.render( scene, camera );
+
+			}
+
+		</script>
+
+	</body>
+</html>

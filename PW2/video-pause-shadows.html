@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			
+			margin: 0;
+			overflow: hidden;
+			background-color: #AAAAAA;
+			background-attachment: fixed !important;
+			}
+		</style>
+		<style>
+			body {
+				font-family: Monospace;
+				margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+
+
+
+
+
+
+
+
+
+		<script type="x-shader/x-vertex" id="vertexshader">
+
+			uniform float scale;
+			uniform float cloudSize;
+			uniform int colorSpace;
+			uniform int shadowPass;
+
+			attribute vec2 uvx;
+
+			varying vec2 vUv;
+			uniform sampler2D tex;
+
+			/* variables for color space conversions */
+			vec3 whiteD65 = vec3(0.95047, 1.00000, 1.08883);
+			/* specifically for XYZ to CIELAB */
+			const float delta = 6.0 / 29.0;
+			const float delta3 = delta * delta * delta;
+			const float inv3delta2 = 1.0 / (3.0 * delta * delta);
+
+			/* ----------------------- DEFINE HELPER FUNCTIONS ----------------------- */
+
+			float C_to_Clin(float C) {
+				if (C <= 0.04045) {
+					return (C / 12.92);
+				} else {
+					return pow((C + 0.055) / 1.055, 2.4);
+				}
+			}
+
+			/* for XYZ to CIELAB */
+			float f(float t) {
+				if (t > delta3) {
+					return pow(t, 1.0 / 3.0);
+				} else {
+					return t * inv3delta2 + 4.0 / 29.0;
+				}
+			}
+
+			/* ------------- DEFINE COLOR SPACE CONVERSION FUNCTIONS ----------------- */
+
+			/* 3.1 */
+			vec3 sRGB_to_LinearRGB(vec3 color_sRGB) {
+				return vec3(C_to_Clin(color_sRGB.x), C_to_Clin(color_sRGB.y), C_to_Clin(color_sRGB.z));
+			}
+
+			/* 3.2 */
+			vec3 LinearRGB_to_XYZ(vec3 LinearRGB) {
+				const mat3 M = mat3(
+					0.4124564, 0.3575761, 0.1804375,
+					0.2126729, 0.7151522, 0.0721750,
+					0.0193339, 0.1191920, 0.9503041
+				);
+
+				return M * LinearRGB;
+			}
+
+			/* 3.3 */
+			vec3 XYZ_to_xyY(vec3 XYZ) {
+				float sum = XYZ.x + XYZ.y + XYZ.z;
+
+				if (sum == 0.0) {
+					return vec3(0.0, 0.0, 0.0);
+				}
+
+				float x = XYZ.x / sum;
+				float y = XYZ.y / sum;
+
+				return vec3(x, y, XYZ.y); /* (x, y, Y) */
+			}
+
+			/* 3.4 */
+			vec3 XYZ_to_CIELAB(vec3 XYZ) {
+				float fx = f(XYZ.x / whiteD65.x);
+				float fy = f(XYZ.y / whiteD65.y);
+				float fz = f(XYZ.z / whiteD65.z);
+
+				float L = 116.0 * fy - 16.0;
+				float a = 500.0 * (fx - fy);
+				float b = 200.0 * (fy - fz);
+
+				return vec3(L, a, b);
+			}
+
+			/* 3.5 */
+			vec3 CIELAB_to_CIELCH(vec3 CIELAB) {
+				float L = CIELAB.x;
+				float a = CIELAB.y;
+				float b = CIELAB.z;
+
+				float C = length(vec2(a, b));
+				float h = atan(b, a);
+
+				/* normalize hue to [0,1] */
+				h = h / (2.0 * 3.14159265359);
+				if (h < 0.0) h += 1.0;
+
+				return vec3(L, C, h);
+			}
+
+
+			/* 3.6 - Assuming that we are using sRGB and not Linear RGB */
+			vec3 sRGB_to_HSV(vec3 RGB) {
+				float r = RGB.r;
+				float g = RGB.g;
+				float b = RGB.b;
+
+				float cmax = max(r, max(g, b));
+				float cmin = min(r, min(g, b));
+				float delta = cmax - cmin;
+
+				float h = 0.0;
+				float s = 0.0;
+				float v = cmax;
+
+				/* Saturation */
+				if (cmax > 0.0) {
+					s = delta / cmax;
+				}
+
+				/* Hue */
+				if (delta > 0.0) {
+					if (cmax == r) {
+						h = mod((g - b) / delta, 6.0);
+					} else if (cmax == g) {
+						h = (b - r) / delta + 2.0;
+					} else {
+						h = (r - g) / delta + 4.0;
+					}
+					h /= 6.0; // normalize to [0,1]
+				}
+
+				return vec3(h, s, v);
+			}
+
+			vec3 convertToColorSpace(vec3 color_sRGB, int colorSpace) {
+				switch (colorSpace) {
+				case 0: // Linear RGB
+					return sRGB_to_LinearRGB(color_sRGB);
+				case 1: // HSV
+					return sRGB_to_HSV( color_sRGB );
+				case 2: // CIEXYZ
+					return LinearRGB_to_XYZ( sRGB_to_LinearRGB(color_sRGB) );
+				case 3: // CIExyY
+					return XYZ_to_xyY( LinearRGB_to_XYZ( sRGB_to_LinearRGB(color_sRGB) ) );
+				case 4: // CIELAB
+					return XYZ_to_CIELAB( LinearRGB_to_XYZ( sRGB_to_LinearRGB(color_sRGB) ) );
+				case 5: // CIELCH
+					return CIELAB_to_CIELCH( XYZ_to_CIELAB( LinearRGB_to_XYZ( sRGB_to_LinearRGB(color_sRGB) ) ) );
+				}
+
+				// Default case
+				return color_sRGB;
+			}
+
+			/* Normalize points so the size is coherent with the visualization space */
+			vec3 normalizePos(vec3 pos) {
+				if (colorSpace == 0 || colorSpace == 1 || colorSpace == 2 || colorSpace == 3) {
+					vec3 p = 10.0 * pos;
+					float offset = 5.0;
+					p = vec3(p.x - offset, p.y, p.z - offset);
+
+					return p;
+				}
+				if (colorSpace == 4 || colorSpace == 5) {	// CIELAB
+					vec3 p = pos / 10.0;
+					float offset = 5.0;
+					p = vec3(p.x - offset, p.y, p.z - offset);
+
+					return p;
+				}
+			}
+
+			/* ----------------------- MAIN FUNCTION ----------------------- */
+
+			void main() {
+
+				vUv = uvx;
+
+				vec3 color_sRGB = texture2D(tex, vUv).rgb;
+
+				// vec3 pos = cloudSize * vec3(color_sRGB.x, color_sRGB.y, color_sRGB.z);
+
+				vec3 pos = normalizePos( convertToColorSpace(color_sRGB, colorSpace) );
+
+				if (shadowPass == 1) {
+					pos.y = 0.0;
+				}
+
+				vec4 mvPosition = modelViewMatrix * vec4( pos, 1.0 );
+
+				gl_PointSize = scale * ( 300.0 / - mvPosition.z );
+
+				gl_Position = projectionMatrix * mvPosition;
+
+			}
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentshader">
+
+			varying vec2 vUv;
+			uniform sampler2D tex;
+			uniform int visualizationType;
+			uniform float particleSize;
+			uniform int shadowPass;
+
+			void main() {
+
+				if ( length( gl_PointCoord - vec2( 0.5, 0.5 ) ) > particleSize ) discard;
+
+				
+				vec3 color = vec3(0.3,0.3,0.3);
+				if (shadowPass == 0) {
+					color = texture2D(tex, vUv).rgb;
+				}
+
+				/* choose alpha value depending on visualization type */
+				float alpha = 1.0; /* point cloud */
+				if (visualizationType == 1) { /* density based */
+					alpha = 0.05;
+				}
+
+				gl_FragColor = vec4( color.x, color.y, color.z, alpha );
+
+			}
+
+		</script>
+
+
+
+
+
+
+
+
+
+
+
+
+<script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+<script type="importmap">
+  {
+	"imports": {
+	  "three": "https://unpkg.com/three@0.183.0/build/three.module.js",
+	  "three/addons/": "https://unpkg.com/three@0.183.0/examples/jsm/"
+	}
+  }
+</script>
+
+<script type="module">
+   import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
+
+
+
+
+
+
+
+
+
+
+
+
+var camera, controls, scene, renderer, container;
+var plan;
+var shadowPlane;
+
+var AMOUNTX, AMOUNTY;
+const SEPARATION = 0.1;
+
+const parameters = {
+	particleSize: 0.475,
+	cloudSize: 10.0,
+	colorSpace: 0, /* RGB by default */
+	visualizationType: 0, /* direct point cloud or density based*/
+};
+
+var shadowPass = 0; // For shadows pass
+
+// VIDEO AND THE ASSOCIATED TEXTURE
+var video,videoTexture;
+
+let particles, count = 0;
+
+// GUI
+var gui;
+
+init();
+
+function onChangeParticleSize() {
+
+	/*
+	let i = 0, j = 0;
+
+	for ( let ix = 0; ix < AMOUNTX; ix ++ ) {
+
+		for ( let iy = 0; iy < AMOUNTY; iy ++ ) {
+
+			scales[ j ] = parameters.particleSize;
+
+		}
+
+	}
+	*/
+
+}
+
+function init () {
+	
+    container = document.createElement( 'div' );
+	document.body.appendChild( container );
+	
+	scene = new THREE.Scene();
+
+	renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
+	renderer.autoClear = false;
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.shadowMap.enabled = false;
+
+	container.appendChild( renderer.domElement );
+
+	camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.001, 2000 );
+	camera.position.y = 20;
+	camera.position.z = 15;
+	controls = new OrbitControls( camera, renderer.domElement );
+	controls.minDistance = 0.005;
+
+	controls.maxDistance = 25.0;
+	controls.enableRotate = true;
+	controls.addEventListener( 'change', render );
+	controls.update();
+
+	video = document.createElement('video');
+	video.src = 'video.mp4';
+	video.load();
+	video.muted = true;
+	video.loop = true;
+
+	video.onloadeddata = function () 
+	{ 
+	videoTexture = new THREE.VideoTexture( video );
+	videoTexture.minFilter = THREE.NearestFilter;
+	videoTexture.magFilter = THREE.NearestFilter;
+	videoTexture.generateMipmaps = false; 
+	videoTexture.format = THREE.RGBAFormat;
+
+	var pausePlayObj =
+	{
+    	pausePlay: function () 
+    	{
+			if (!video.paused)
+			{
+				console.log ( "pause" );
+				video.pause();
+			}
+			else
+			{
+				console.log ( "play" );
+				video.play();
+			}
+		},
+		add10sec: function ()
+		{
+			video.currentTime = video.currentTime + 10;
+			console.log ( video.currentTime  );
+		}
+	};
+	
+	gui = new GUI();
+    gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
+    gui.add(pausePlayObj,'add10sec').name ('Add 10 seconds');
+
+	video.play();
+
+
+	// --------------- SETUP PARTICLES ---------------
+
+
+	AMOUNTX = video.videoWidth;
+	AMOUNTY = video.videoHeight;
+	const numParticles = AMOUNTX * AMOUNTY;
+
+	const colors = new Float32Array( numParticles * 3 );
+	const uvs = new Float32Array( numParticles * 2 );
+
+	let i = 0, j = 0;
+
+	for ( let ix = 0; ix < AMOUNTX; ix ++ ) {
+
+		for ( let iy = 0; iy < AMOUNTY; iy ++ ) {
+
+			colors[ i ] = 0; // x
+			colors[ i + 1 ] = 0; // y
+			colors[ i + 2 ] = 0; // z
+
+			uvs[ j ] = ix / AMOUNTX;
+			uvs[ j + 1 ] = iy / AMOUNTY;
+
+			i += 3;
+			j += 2;
+
+		}
+
+	}
+
+	const particlesGeometry = new THREE.BufferGeometry();
+	particlesGeometry.setAttribute( 'position', new THREE.BufferAttribute( colors, 3 ) );
+	particlesGeometry.setAttribute( 'uvx', new THREE.BufferAttribute( uvs, 2 ) );
+
+	const particlesMaterial = new THREE.ShaderMaterial( {
+
+	uniforms: {
+		scale: { value: parameters.particleSize },
+		cloudSize: { value: parameters.cloudSize },
+		tex: { value: videoTexture },
+		colorSpace: { value: parameters.colorSpace },
+		visualizationType: { value: parameters.visualizationType },
+		particleSize: { value: parameters.particleSize },
+		shadowPass: { value: shadowPass },
+	},
+	transparent: true,
+    depthTest: true,
+	side : THREE.DoubleSide,
+	vertexShader: document.getElementById( 'vertexshader' ).textContent,
+	fragmentShader: document.getElementById( 'fragmentshader' ).textContent
+
+	} );
+
+	particles = new THREE.Points( particlesGeometry, particlesMaterial );
+	particles.castShadow = true;
+	scene.add( particles );
+
+	const dir = new THREE.Vector3( 1, 2, 0 );
+	//normalize the direction vector (convert to vector of length 1)
+	dir.normalize();
+	const origin = new THREE.Vector3( 0, 0, 0 );
+	const length = 1;
+	const hex = 0xffff00;
+	const arrowHelper = new THREE.ArrowHelper( dir, origin, length, hex );
+	scene.add( arrowHelper );
+
+
+
+	// --------------- SETUP LIL-GUI ---------------
+
+	var visualizeColorSpaceObject =
+	{
+		RGB: function () { parameters.colorSpace = 0; },
+		RGBA: function () { parameters.colorSpace = 0; }
+	};
+
+	gui.add(parameters, 'particleSize', 0.02, 2).name('particle size').onChange((value) => {
+  		particlesMaterial.uniforms.particleSize.value = value;
+	});
+	// gui.add(parameters, 'cloudSize', 0.02, 10).name('cloud size').onChange( onChangeParticleSize );
+	// gui.add(visualizeColorSpaceObject,'RGB').name ('RGB');
+
+	gui.add( parameters, 'colorSpace', {
+		LinearRGB: 0,
+		HSV: 1, 
+		CIEXYZ: 2,
+		CIExyY: 3,
+		CIELAB: 4,
+		CIELCH: 5
+	} ).name ('Color Space').onChange((value) => {
+  		particlesMaterial.uniforms.colorSpace.value = value;
+	});
+
+	gui.add( parameters, 'visualizationType', {
+		Direct: 0,
+		Density: 1, 
+	} ).name ('Visualization Type').onChange((value) => {
+  		particlesMaterial.uniforms.visualizationType.value = value;
+	});
+
+
+	// --------------- SETUP VISUALIZATION SPACE ---------------
+
+	/* Define geometries and materials */
+	var geometry = new THREE.PlaneGeometry( 1, video.videoHeight/video.videoWidth ); // For video visualization
+	var boxGeometry = new THREE.BoxGeometry(10, 10, 10);
+	var material = new THREE.MeshBasicMaterial( { map: videoTexture, side : THREE.DoubleSide } );
+	var boxMaterial = new THREE.MeshStandardMaterial( { color: (0.5,0.5,0.5), side : THREE.DoubleSide, transparent: true, opacity: 0.025 } );
+
+	/* Define video visualizer plane */
+	plan = new THREE.Mesh( geometry, material );
+	plan.receiveShadow = false;
+	plan.castShadow = false;
+	plan.position.set(0, 5, -15)
+	plan.scale.set(10, 10, 10);
+	scene.add( plan );
+
+
+	scene.add(new THREE.GridHelper());
+
+	var boxMesh = new THREE.Mesh( boxGeometry, boxMaterial );
+	boxMesh.position.set(0, 5, 0);
+  	scene.add(boxMesh);
+
+	};
+	
+	window.addEventListener( 'resize', onWindowResize, false );
+
+	animate();
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+function render () {
+	renderer.clear();
+
+
+	
+	// const colors = particles.geometry.attributes.position.array;
+
+	// particles.geometry.attributes.position.needsUpdate = true;
+	
+	
+
+    renderer.render(particles, camera);
+
+    // restore
+    renderer.autoClear = true;
+	
+}
+
+function animate() {	
+	requestAnimationFrame(animate);
+	controls.update();
+	render();
+}
+
+function onWindowResize () {
+	camera.aspect = ( window.innerWidth / window.innerHeight);
+	camera.updateProjectionMatrix();
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	render();
+}
+
+</script>
+</body>
+</html>
