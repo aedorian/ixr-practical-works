@@ -164,7 +164,7 @@
 			var plan;
 
 			// GUI
-			var gui;
+			var gui, guiMesh;
 
 			init();
 
@@ -287,10 +287,34 @@
 
 					// --------------- SETUP LIL-GUI ---------------
 
-					// create group
+
+
+					// 2. Setup Controllers INSIDE the rig
+					const controllerModelFactory = new XRControllerModelFactory();
+
+					// Controller 0 (Raycaster/Pointer)
+					const c1 = renderer.xr.getController(0);
+					const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+						new THREE.Vector3(0, 0, 0), 
+						new THREE.Vector3(0, 0, -5) // Forward is always -Z in Three.js
+					]);
+					const line = new THREE.Line(lineGeometry);
+					c1.add(line);
+					cameraRig.add(c1); // Add to RIG, not scene
+
+					// Grip 0 (The 3D Model of the remote)
+					const grip1 = renderer.xr.getControllerGrip(0);
+					grip1.add(controllerModelFactory.createControllerModel(grip1));
+					cameraRig.add(grip1); // Add to RIG, not scene
+
+					// 3. The InteractiveGroup needs the renderer and camera
+					// It handles the "mouse" events in 3D space
 					const interactiveGroup = new InteractiveGroup(renderer, camera);
 					scene.add(interactiveGroup);
+					interactiveGroup.listenToXRControllerEvents(c1); // Tell it to watch this controller
 
+
+					
 					// create lil-gui
 					gui = new GUI();
 					gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
@@ -308,29 +332,18 @@
 					});
 
 					// convert GUI to Mesh and add it to interactive group
-					const guiMesh = new HTMLMesh(gui.domElement);
+					guiMesh = new HTMLMesh(gui.domElement);
 					guiMesh.position.set(0, 0, 2);
 					guiMesh.rotation.set(-Math.PI / 2, 0, Math.PI);
 					guiMesh.scale.setScalar(10);
 					interactiveGroup.add(guiMesh);
 		
-					const controllerModelFactory = new XRControllerModelFactory();
-
-					const c1 = renderer.xr.getController(0);
-					// line that shows where you are pointing
-					const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)]);
-					const line = new THREE.Line(lineGeometry);
-					line.name = 'line';
-					c1.add(line.clone());
-					interactiveGroup.add(c1);
-
-					// controller model
-					const grip1 = renderer.xr.getControllerGrip(0);
-					grip1.add(controllerModelFactory.createControllerModel(grip1));
-					scene.add(grip1);
-
-					gui.domElement.style.position = 'static';
-					gui.domElement.style.width = '300px';
+					// 1. Ensure EVERYTHING is in the cameraRig
+					cameraRig.add(camera);
+					scene.add(cameraRig);
+					
+					gui.domElement.style.display = 'block';
+					guiMesh.visible = false;
 										
 
 				};
@@ -360,9 +373,34 @@
 				// camera rig for static camera position
 
 				cameraRig.add(camera);
-				scene.add(cameraRig);
+				scene.add(cameraRig);   
 
 				window.addEventListener( 'resize', onWindowResize, false );
+
+				renderer.xr.addEventListener('sessionstart', () => {
+					gui.domElement.style.display = 'none';
+					guiMesh.visible = true;
+
+					// Reset Rig so it doesn't have "Leftover" desktop rotations
+					cameraRig.rotation.set(0, 0, 0); 
+					
+					// Position the rig. 
+					// In Z-Up: X=Left/Right, Y=Forward/Back, Z=Up/Down
+					// Move user 3 units back (Y) and keep them on the floor (Z=0)
+					cameraRig.position.set(0, 3, 0); 
+					
+					// IMPORTANT: If you MUST use Z-Up, you only rotate the rig 
+					// if the headset feels "sideways". Usually, WebXR will 
+					// handle the floor-level height for you.
+					cameraRig.rotation.x = Math.PI / 2; 
+					
+					cameraRig.updateMatrixWorld();
+				});
+
+				renderer.xr.addEventListener('sessionend', () => {
+					gui.domElement.style.display = 'block';
+					guiMesh.visible = false;                
+				});
 
 				renderer.setAnimationLoop(render);
 
