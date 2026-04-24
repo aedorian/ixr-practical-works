@@ -68,7 +68,7 @@ function main()
   const scene = new THREE.Scene();
   scene.background = new THREE.Color( 0x333333 );
 
-px
+
 
 
 
@@ -135,7 +135,7 @@ px
 
     controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
     renderer.render(scene, camera);
-    renderer.setAnimationLoop(render);
+    renderer.render(scene, camera);
   }
 
 
