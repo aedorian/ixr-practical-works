@@ -1,0 +1,98 @@
+<!-- Licensed under a BSD license. See license.html for license -->
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>PW1</title>
+    <style>
+    html, body {
+        height: 100%;
+        margin: 0;
+    }
+    #c {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" data-engine="three.js r182" style="touch-action: none;" width="1536" height="751"></canvas>
+  
+
+  <script async="" src="Three.js%20-%20Custom%20BufferGeometry_files/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.182.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.182.0/examples/jsm/"
+      }
+    }
+  </script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import * as HELPER from './pw1_functions.js';
+
+
+
+
+
+
+
+
+
+function main() 
+{
+  const canvas = document.querySelector('#c');
+  const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+  renderer.shadowMap.enabled = true
+
+  const fov = 75;
+  const aspect = 2;  // the canvas default
+  const near = 0.1;
+  const far = 100;
+  const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+  camera.position.z = 1.5;
+
+  var controls = new OrbitControls( camera, renderer.domElement );
+  controls.listenToKeyEvents( window ); // optional
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color( 0x333333 );
+
+  HELPER.addKitchen(scene);
+
+  var { metalMaterial, robotShoulderL, robotElbowL, robotShoulderR, robotElbowR } = HELPER.addRobot(scene, true, false);
+  
+
+
+
+
+  function render(time) {
+//   time *= 0.0004;
+
+    if (HELPER.resizeRendererToDisplaySize(renderer)) {
+      const canvas = renderer.domElement;
+      camera.aspect = canvas.clientWidth / canvas.clientHeight;
+      camera.updateProjectionMatrix();
+    }
+
+    time = Date.now() * 0.001;
+	  robotShoulderL.rotation.z = 1 * ( 1 +  Math.sin( time ) );
+    robotElbowL.rotation.z = 1 * ( 1 + Math.cos( time ) );
+
+    controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
+    renderer.render(scene, camera);
+    requestAnimationFrame(render);
+  }
+
+
+  requestAnimationFrame(render);
+}
+
+main();
+</script>
+</body></html>

@@ -1,0 +1,147 @@
+<!-- Licensed under a BSD license. See license.html for license -->
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>PW1</title>
+    <style>
+    html, body {
+        height: 100%;
+        margin: 0;
+    }
+    #c {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" data-engine="three.js r182" style="touch-action: none;" width="1536" height="751"></canvas>
+  
+
+  <script async="" src="Three.js%20-%20Custom%20BufferGeometry_files/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.182.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.182.0/examples/jsm/"
+      }
+    }
+  </script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+  import { VRButton } from 'three/addons/webxr/VRButton.js';
+  import * as HELPER from './pw1_functions.js';
+
+
+
+
+
+
+
+
+
+function main() 
+{
+  const canvas = document.querySelector('#c');
+  const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+  renderer.shadowMap.enabled = true;
+  renderer.xr.enabled = true;
+
+  document.body.appendChild( VRButton.createButton( renderer ) );
+
+  const fov = 75;
+  const aspect = 2;  // the canvas default
+  const near = 0.1;
+  const far = 100;
+  const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+  camera.position.z = 1.5;
+
+  var controls = new OrbitControls( camera, renderer.domElement );
+  controls.listenToKeyEvents( window ); // optional
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color( 0x333333 );
+
+px
+
+
+
+  // this time we obtain the walls so we can disable them later when we go into AR mode
+  var walls = HELPER.addKitchen(scene);
+  
+  var { metalMaterial, robotHandL, robotHandR } = HELPER.addRobot(scene, false, true);
+
+  var { pointLight } = HELPER.addLighting(scene);
+
+
+  /* ---------------- GUI --------------- */
+
+  const gui = new GUI();
+  gui.add( pointLight, 'intensity', 0, 30 );
+  gui.add( metalMaterial, 'roughness', 0, 1 );
+  gui.add( metalMaterial, 'metalness', 0, 1 );
+  gui.add( pointLight.position, 'x', -1, 1 );
+  gui.add( pointLight.position, 'y', -1, 1 );
+  gui.add( pointLight.position, 'z', -1, 1 );
+
+
+
+  // xr
+
+  const controller1 = renderer.xr.getController(0);
+  const controller2 = renderer.xr.getController(1);
+  scene.add(controller1, controller2);
+
+  // ar
+
+  renderer.xr.addEventListener('sessionstart', () => {
+    const session = renderer.xr.getSession();
+    
+    if (session.mode === 'immersive-ar') {
+
+      walls[0].visible = false; 
+      walls[1].visible = false; 
+      scene.background = null; 
+    }
+  });
+
+  renderer.xr.addEventListener('sessionend', () => {
+    walls[0].visible = true; 
+    walls[1].visible = true; 
+    scene.background = scene.userData.oldBackground;
+  });
+
+
+
+  function render(time) {
+
+    if (HELPER.resizeRendererToDisplaySize(renderer)) {
+      const canvas = renderer.domElement;
+      camera.aspect = canvas.clientWidth / canvas.clientHeight;
+      camera.updateProjectionMatrix();
+    }
+
+    if (renderer.xr.isPresenting) {
+      robotHandL.position.copy(controller1.position);
+      robotHandR.position.copy(controller2.position);
+    }
+    
+
+    controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
+    renderer.render(scene, camera);
+    renderer.setAnimationLoop(render);
+  }
+
+
+  renderer.setAnimationLoop(render);
+}
+
+main();
+</script>
+</body></html>
