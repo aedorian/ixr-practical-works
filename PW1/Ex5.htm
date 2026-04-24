@@ -128,12 +128,12 @@ function main()
     }
 
     if (renderer.xr.isPresenting) {
-      robotHandL.position.copy(controller1.position);
-      robotHandR.position.copy(controller2.position);
+      robotHandL.position.copy(controller1.position * 2);
+      robotHandR.position.copy(controller2.position * 2);
     }
     
 
-    controls.update(); // only required if controls.enableDamping = true, or if controls.autoRotate = true
+    controls.update();
     renderer.render(scene, camera);
     renderer.render(scene, camera);
   }
