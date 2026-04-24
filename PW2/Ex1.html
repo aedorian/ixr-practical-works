@@ -330,6 +330,7 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 var camera, controls, scene, renderer, container;
 var plan;
 var shadowPlane;
+const cameraRig = new THREE.Group();
 
 var AMOUNTX, AMOUNTY;
 const SEPARATION = 0.1;
@@ -349,7 +350,7 @@ var video,videoTexture;
 let particles, count = 0;
 
 // GUI
-var gui;
+var gui, guiMesh;
 
 init();
 
@@ -433,9 +434,6 @@ function init () {
 		}
 	};
 	
-	gui = new GUI();
-    gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
-    gui.add(pausePlayObj,'add10sec').name ('Add 10 seconds');
 
 	video.play();
 
@@ -526,6 +524,36 @@ function init () {
 	
 	// --------------- SETUP LIL-GUI ---------------
 
+
+
+	
+	cameraRig.add(camera);
+	scene.add(cameraRig);
+
+	// Controller 0 (The Pointer/Ray)
+	const c1 = renderer.xr.getController(0);
+	const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+		new THREE.Vector3(0, 0, 0), 
+		new THREE.Vector3(0, 0, -5) // Ray points forward (-Z)
+	]);
+	c1.add(new THREE.Line(lineGeometry));
+	cameraRig.add(c1); // MUST be child of Rig
+
+	// Grip 0 (The Visual Model)
+	const controllerModelFactory = new XRControllerModelFactory();
+	const grip1 = renderer.xr.getControllerGrip(0);
+	grip1.add(controllerModelFactory.createControllerModel(grip1));
+cameraRig.add(grip1); // MUST be child of Rig
+
+	const interactiveGroup = new InteractiveGroup(renderer, camera);
+	scene.add(interactiveGroup);
+	interactiveGroup.listenToXRControllerEvents(c1);
+
+
+	// create lil-gui
+	gui = new GUI();
+    gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
+    gui.add(pausePlayObj,'add10sec').name ('Add 10 seconds');
 	gui.add(parameters, 'particleSize', 0.02, 2).name('particle size').onChange((value) => {
   		particlesMaterial.uniforms.particleSize.value = value;
 	});
@@ -556,17 +584,44 @@ function init () {
   		particlesMaterial.uniforms.visualizationType.value = value;
 	});
 
+	// convert GUI to Mesh and add it to interactive group
+	guiMesh = new HTMLMesh(gui.domElement);
+	guiMesh.position.set(0, 0, 9);
+	guiMesh.rotation.set(-Math.PI / 2, 0, 0);
+	guiMesh.scale.setScalar(35);
+	interactiveGroup.add(guiMesh);
+
+	gui.domElement.style.display = 'block';
+	guiMesh.visible = false;
+
+	
+
 	};
 
 
 
+	document.body.appendChild( VRButton.createButton( renderer ) );
 
+	renderer.xr.addEventListener('sessionstart', () => {
+		gui.domElement.style.display = 'none';
+		guiMesh.visible = true;	
+		cameraRig.rotation.set(0, 0, 0); 
+		
+		cameraRig.position.set(0, 3, 0); 
+		
+		
+		cameraRig.updateMatrixWorld();
+	});	
+	renderer.xr.addEventListener('sessionend', () => {
+		gui.domElement.style.display = 'block';
+		guiMesh.visible = false;                
+	});
 
 
 	
 	window.addEventListener( 'resize', onWindowResize, false );
 
-	animate();
+	renderer.setAnimationLoop(render);
 
 }
 

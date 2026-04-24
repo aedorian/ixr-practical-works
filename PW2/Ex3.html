@@ -289,29 +289,24 @@
 
 
 
-					// 2. Setup Controllers INSIDE the rig
 					const controllerModelFactory = new XRControllerModelFactory();
 
-					// Controller 0 (Raycaster/Pointer)
 					const c1 = renderer.xr.getController(0);
 					const lineGeometry = new THREE.BufferGeometry().setFromPoints([
 						new THREE.Vector3(0, 0, 0), 
-						new THREE.Vector3(0, 0, -5) // Forward is always -Z in Three.js
+						new THREE.Vector3(0, 0, -5)
 					]);
 					const line = new THREE.Line(lineGeometry);
 					c1.add(line);
-					cameraRig.add(c1); // Add to RIG, not scene
+					cameraRig.add(c1);
 
-					// Grip 0 (The 3D Model of the remote)
 					const grip1 = renderer.xr.getControllerGrip(0);
 					grip1.add(controllerModelFactory.createControllerModel(grip1));
-					cameraRig.add(grip1); // Add to RIG, not scene
+					cameraRig.add(grip1);
 
-					// 3. The InteractiveGroup needs the renderer and camera
-					// It handles the "mouse" events in 3D space
 					const interactiveGroup = new InteractiveGroup(renderer, camera);
 					scene.add(interactiveGroup);
-					interactiveGroup.listenToXRControllerEvents(c1); // Tell it to watch this controller
+					interactiveGroup.listenToXRControllerEvents(c1);
 
 
 					
@@ -338,7 +333,6 @@
 					guiMesh.scale.setScalar(10);
 					interactiveGroup.add(guiMesh);
 		
-					// 1. Ensure EVERYTHING is in the cameraRig
 					cameraRig.add(camera);
 					scene.add(cameraRig);
 					
@@ -381,17 +375,10 @@
 					gui.domElement.style.display = 'none';
 					guiMesh.visible = true;
 
-					// Reset Rig so it doesn't have "Leftover" desktop rotations
 					cameraRig.rotation.set(0, 0, 0); 
 					
-					// Position the rig. 
-					// In Z-Up: X=Left/Right, Y=Forward/Back, Z=Up/Down
-					// Move user 3 units back (Y) and keep them on the floor (Z=0)
 					cameraRig.position.set(0, 3, 0); 
 					
-					// IMPORTANT: If you MUST use Z-Up, you only rotate the rig 
-					// if the headset feels "sideways". Usually, WebXR will 
-					// handle the floor-level height for you.
 					cameraRig.rotation.x = Math.PI / 2; 
 					
 					cameraRig.updateMatrixWorld();
