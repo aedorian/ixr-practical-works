@@ -309,9 +309,9 @@
 
 					// convert GUI to Mesh and add it to interactive group
 					const guiMesh = new HTMLMesh(gui.domElement);
-					guiMesh.position.set(1, 1.5, -1);
-					guiMesh.rotation.y = -Math.PI / 4;
-					guiMesh.scale.setScalar(2);
+					guiMesh.position.set(0, 0, 2);
+					guiMesh.rotation.set(-Math.PI / 2, 0, Math.PI);
+					guiMesh.scale.setScalar(10);
 					interactiveGroup.add(guiMesh);
 		
 					const controllerModelFactory = new XRControllerModelFactory();
@@ -370,8 +370,8 @@
 
 			renderer.xr.addEventListener('sessionstart', () => {
 				// Let's say your robot is at (0,0,0). Move the user back 2 meters and up 1.6m.
-				cameraRig.position.set(0, 2, 7);
-				cameraRig.rotation.set(0, 0, 0);
+				cameraRig.position.set(0, 3, 1);
+				cameraRig.rotation.set(0, Math.PI, 0);
 				cameraRig.rotation.x = Math.PI / 2;
 				cameraRig.updateMatrixWorld();
 			});
